@@ -146,7 +146,7 @@ Via API: POST to `/query` with JSON payload.
    - PDFBox (for PDF extraction).
    - Http4s, Cats Effect, Circe (for API).
    - SLF4J (logging).
-   - Build with sbt or Maven.
+   - Build with sbt assembly(I ran assembly from sbt shell to build jar fie).
 2. **Ollama Setup**: Install Ollama, pull models (e.g., `ollama pull mxbai-embed-large`, `ollama pull llama3`).
 
 3. Build in sbt shell using assembly.
