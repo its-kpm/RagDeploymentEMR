@@ -1,6 +1,7 @@
 
 
- # Word Statstics excels--https://github.com/its-Shivam732/RagDeplyment/tree/main/RagDeployment/excels . Note that Vocab and nearest_neighour were huge files(all ~75k tokens), more than the capacity what we can upload, have shortened it and uploaded. You still need to download vocab.csv to view, as its still pretty big.
+ # Word Statstics excels--https://github.com/its-Shivam732/RagDeplyment/tree/main/RagDeployment/excels . 
+ Note that Vocab and nearest_neighour were huge files(all ~75k tokens), more than the capacity what we can upload, have shortened it and uploaded. You still need to download vocab.csv to view, as its still pretty big.
 
 # Youtube video-- https://youtu.be/oXHbYBhlWjU?si=QJ-CelC8-CMFjWM_
 
