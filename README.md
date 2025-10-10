@@ -160,6 +160,7 @@ NOTE---Currently PATHS in code follow aws s3 filesystem.
 ```bash
  hadoop jar /home/hadoop/RagDeployment-assembly-0.1.0.jar ragdeployment.Driver Driver rag s3://myhadoopemr/paths.txt s3://myhadoopemr/output mxbai-embed-large COSINE
  hadoop jar /home/hadoop/RagDeployment-assembly-0.1.0.jar ragdeployment.Driver Driver wordstats s3://myhadoopemr/paths.txt s3://myhadoopemr/output mxbai-embed-large COSINE
+```
 
 ## Usage
 - **Build Index**: Launch Hadoop job with input file of PDF paths.
