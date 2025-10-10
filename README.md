@@ -187,9 +187,9 @@ TO run in locally, first setup the local hadoop cluster and then run these 3 com
  
 2. this create various files with  vocab count of each word and Emb vector in o/p files(text files like part-r-00000
  ```bash
- hadoop jar /home/hadoop/RagDeployment-assembly-0.1.0.jar ragdeployment.Driver Driver rag s3://myhadoopemr/paths.txt s3://myhadoopemr/outputs mxbai-embed-large COSINE
+hadoop jar /Users/moudgil/RagDeplyment/RagDeployment/target/scala-3.5.1/RagDeployment-assembly-0.1.0.jar ragdeployment.Driver  Driver wordstats /hw1/input/paths.txt /hw1/outputs mxbai-embed-large COSINE
 ```
-3. Copy all the files generated from second comand to src/main/scala/ragdeployment , via hdfs dfs -get /hw1/output/ ~/path to src-main-ragdeployment/. Now run following command, thi will generate 3 csv file i.e Nearest neighbors, Analogies, Similarities.
+3. Copy all the files generated from second comand(from /hw1/outputs) to src/main/scala/ragdeployment , via hdfs dfs -get /hw1/output/ ~/path to src-main-ragdeployment/. Now run following command in intelij terminal, this will generate 3 csv file i.e Nearest neighbors, Analogies, Similarities.
  ```bash
  java -cp /Users/home/RagDeplyment/RagDeployment/target/scala-3.5.1/RagDeployment-assembly-0.1.0.jar ragdeployment.Driver Driver postprocess /Users/home/RagDeplyment/RagDeployment/src/main/scala/ragdeployment dummy dummy /////this combines all the o/p files in second command and generate the final csv files for stats
  ```
