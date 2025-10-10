@@ -26,6 +26,7 @@ The codebase is organized into Scala objects and classes under the `ragdeploymen
      - Mapper for processing individual PDF paths.
      - Reads PDFs from HDFS/S3 using Hadoop FileSystem.
      - Extracts text using PDFBox (`Pdfs.readText`).
+     - Number of mappers are reducers are configurable via command araguments(see video).
      - Splits text into overlapping chunks (`Chunker.split` with maxChars=1200, overlap=200).
      - Generates embeddings using Ollama (`Ollama.embed` with configurable model, e.g., "mxbai-embed-large").
      - Normalizes vectors (L2 norm via `Vectors.l2` if configured).
@@ -50,26 +51,24 @@ The codebase is organized into Scala objects and classes under the `ragdeploymen
      - Cleans text (lowercase, remove punctuation).
      - Filters stopwords and short words.
      - Emits (word, 1) pairs.
+   - **WordStatsReducer.scala**:
+     - Each reducer receives a set of (word, [list of counts]) pairs from the mappers.
+     - Aggregate Word Frequency.
+     - Generate Embeddings via Ollama.
+     - Emit Final Output Record. Each output record is written in CSV-like format in text files like part-r-00000.
+       
    - **PostProcessEmbeddings.scala** (Standalone Utility):
-     - Processes MapReduce output from word stats (assumes a WordStatsReducer exists, not in provided files).
+     - Processes MapReduce output from word stats job o/p file(part-r-00000, part-r-00001....).
      - Parses vocabulary with embeddings.
      - Computes:
        - Nearest neighbors (top-k by cosine similarity).
        - Word similarities for test pairs.
        - Analogies (e.g., king - man + woman ≈ queen).
      - Outputs CSV files: vocabulary.csv, nearest_neighbors.csv, word_similarities.csv, word_analogies.csv.
-     - Optimized with pre-computed norms and while-loops for performance.
 ### 3. **Query Pipeline**
-   - **RagQuery.scala**:
-     - Core logic for RAG queries.
-     - `searchShard`: Searches a single Lucene shard using KnnFloatVectorQuery.
-     - `searchAllShards`: Searches all shards in parallel (fan-out/fan-in), merges top-k results.
-     - `answer`: Full RAG flow:
-       - Embed query with Ollama.
-       - Search shards.
-       - Pack context from results.
-       - Generate answer via Ollama chat API (system prompt ensures context-only responses).
-       - Appends source attributions.
+   - **Search**: Two options parallel or sequential
+   - Sequential: `RagQuery.searchAllShards` (fan-out to shards).
+   - Parallel: `ParallelSearchJob.search` (MapReduce for large-scale).
    - **ParallelSearchJob.scala** (Optional Distributed Search):
      - Launches MapReduce job for parallel shard searches (useful for very large indexes).
      - Lists shards, creates temp input file with shard paths.
@@ -92,7 +91,6 @@ The codebase is organized into Scala objects and classes under the `ragdeploymen
        - `POST /api/v1/query`: Full RAG (search + answer). Accepts JSON with query, topK, embedModel, chatModel.
        - `GET /api/v1/search?q=<query>&topK=<k>&model=<model>`: Search only, returns results.
        - `GET /api/v1/health`: Checks index status and shard count.
-     - Uses `RagQuery` for core logic.
      - Configurable via env vars (RAG_INDEX_PATH, RAG_API_PORT).
      - JSON handling with Circe.
 
@@ -120,7 +118,8 @@ To run: Configure a Hadoop Job with `RagMapper` and `RagShardReducer`, set confi
 
 ### Word Analysis Flow (Standalone)
 1. **Word Stats MapReduce**: Use `WordStatsMapper` (and implied reducer) to count words and generate embeddings.
-2. **Post-Processing**: Run `PostProcessEmbeddings.run(inputPath)` on output → Generate CSV analyses.
+2. **Word Stats Reducer**: The WordStatsReducer aggregates word counts from all mappers and generates embeddings for each unique word.
+3. **Post-Processing**: Run `PostProcessEmbeddings.run(inputPath)` on output → Generate CSV analyses.
 
 ### Query Flow (API or Standalone)
 1. **Embed Query**: Use Ollama to generate query vector.
@@ -175,9 +174,10 @@ NOTE---Currently PATHS in code follow aws s3 filesystem.
   }'
 
 # NOTE
-TO run in locally, first you have to make some filesystem changes in code, currently it is configured according to AWS s3 filesystem. Then  setup the local hadoop cluster and then run these 3 comands one after another for Rag indexing job, wordstat job and postprocessing respectively.
+TO run in locally, first setup the local hadoop cluster and then run these 3 comands one after another for Rag indexing job, wordstat job and postprocessing respectively.
 ```bash
- hadoop jar /home/hadoop/RagDeployment-assembly-0.1.0.jar ragdeployment.Driver Driver rag s3://myhadoopemr/paths.txt s3://myhadoopemr/output mxbai-embed-large COSINE
- hadoop jar /home/hadoop/RagDeployment-assembly-0.1.0.jar ragdeployment.Driver Driver rag s3://myhadoopemr/paths.txt s3://myhadoopemr/output mxbai-embed-large COSINE
- java -cp /Users/home/RagDeplyment/RagDeployment/target/scala-3.5.1/RagDeployment-assembly-0.1.0.jar ragdeployment.Driver Driver postprocess /Users/home/RagDeplyment/RagDeployment/src/main/scala/ragdeployment dummy dummy
+ hadoop jar /Users/moudgil/RagDeplyment/RagDeployment/target/scala-3.5.1/RagDeployment-assembly-0.1.0.jar ragdeployment.Driver  Driver rag /hw1/input/paths.txt /hw1/output mxbai-embed-large COSINE /////this creates indexes in shards
+ hadoop jar /home/hadoop/RagDeployment-assembly-0.1.0.jar ragdeployment.Driver Driver rag s3://myhadoopemr/paths.txt s3://myhadoopemr/outputs mxbai-embed-large COSINE /////this create various stats like vocab count of each word and Emb vector in o/p files
+ copy all the files generated from second comand to src/main/scala/ragdeployment , via hdfs dfs -get /hw1/output/ ~/path to src-main-ragdeployment/
+ java -cp /Users/home/RagDeplyment/RagDeployment/target/scala-3.5.1/RagDeployment-assembly-0.1.0.jar ragdeployment.Driver Driver postprocess /Users/home/RagDeplyment/RagDeployment/src/main/scala/ragdeployment dummy dummy /////this combines all the o/p files in second command and generate the final csv files for stats
  ```
