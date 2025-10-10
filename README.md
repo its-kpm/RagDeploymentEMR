@@ -139,7 +139,7 @@ Via API: POST to `/query` with JSON payload.
 
 ## Installation and Setup
 1. **Dependencies**:
-   - Scala 3.5.1. JAVA-17(or compatible)
+   - Scala 3.5.1. JAVA-17(or compatible), sbtVersion 1.11.6
    - Hadoop (for MapReduce).
    - Lucene (core, analyzers).
    - Ollama (running server for embeddings/LLM).
