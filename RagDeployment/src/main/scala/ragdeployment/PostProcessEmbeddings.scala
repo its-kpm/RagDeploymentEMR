@@ -31,8 +31,6 @@ object PostProcessEmbeddings {
 
   /**
    * Compute cosine similarity between two vectors using pre-computed norms.
-   * Optimized with while loop for better performance on large vocabularies.
-   *
    * Formula: cos(θ) = (v1 · v2) / (||v1|| * ||v2||)
    *
    * @param v1 First vector
@@ -45,13 +43,8 @@ object PostProcessEmbeddings {
     // Handle zero vectors
     if (norm1 == 0 || norm2 == 0) return 0.0
 
-    // Compute dot product using while loop (faster than functional operations)
-    var dot = 0.0f
-    var i = 0
-    while (i < v1.length) {
-      dot += v1(i) * v2(i)
-      i += 1
-    }
+    // Compute dot product using foldLeft
+    val dot = v1.zip(v2).foldLeft(0.0f)((sum, pair) => sum + pair._1 * pair._2)
 
     // Return normalized similarity
     dot / (norm1 * norm2)
@@ -65,13 +58,7 @@ object PostProcessEmbeddings {
    * @return L2 norm
    */
   def computeNorm(v: Array[Float]): Float = {
-    var sum = 0.0f
-    var i = 0
-    while (i < v.length) {
-      sum += v(i) * v(i)
-      i += 1
-    }
-    math.sqrt(sum).toFloat
+    math.sqrt(v.foldLeft(0.0f)((sum, x) => sum + x * x)).toFloat
   }
 
   /**
@@ -83,13 +70,7 @@ object PostProcessEmbeddings {
    * @return Sum vector
    */
   def add(v1: Array[Float], v2: Array[Float]): Array[Float] = {
-    val result = new Array[Float](v1.length)
-    var i = 0
-    while (i < v1.length) {
-      result(i) = v1(i) + v2(i)
-      i += 1
-    }
-    result
+    v1.zip(v2).map { case (x, y) => x + y }
   }
 
   /**
@@ -101,13 +82,7 @@ object PostProcessEmbeddings {
    * @return Difference vector
    */
   def sub(v1: Array[Float], v2: Array[Float]): Array[Float] = {
-    val result = new Array[Float](v1.length)
-    var i = 0
-    while (i < v1.length) {
-      result(i) = v1(i) - v2(i)
-      i += 1
-    }
-    result
+    v1.zip(v2).map { case (x, y) => x - y }
   }
 
   /**
@@ -145,7 +120,6 @@ object PostProcessEmbeddings {
     log.info("Parsing vocabulary from input files...")
     val vocab = filesToProcess.flatMap { file =>
       log.debug(s"Processing file: ${file.getName}")
-
       Source.fromFile(file).getLines()
         .filter(line => line != null && line.trim.nonEmpty && line.contains("\t"))
         .flatMap { line =>
@@ -180,18 +154,14 @@ object PostProcessEmbeddings {
       System.exit(1)
     }
 
-    // ========================================================================
     // Pre-compute vector norms (optimization)
-    // ========================================================================
     log.info("Pre-computing vector norms for efficient similarity calculations...")
     val normalizedVocab = vocab.map { case (word, vec) =>
       NormalizedWord(word, vec, computeNorm(vec))
     }.toArray
     log.info(s"Pre-computed norms for ${normalizedVocab.length} words")
 
-    // ========================================================================
     // Export vocabulary statistics
-    // ========================================================================
     log.info("Exporting vocabulary.csv...")
     println("Exporting vocabulary.csv...")
     val vocabWriter = new PrintWriter("vocabulary.csv")
@@ -202,9 +172,7 @@ object PostProcessEmbeddings {
     vocabWriter.close()
     log.info("vocabulary.csv written successfully")
 
-    // ========================================================================
     // Task 1: Semantic Neighbors (Nearest Neighbors)
-    // ========================================================================
     log.info("=" * 80)
     log.info("Task 1: Computing Semantic Neighbors")
     log.info("=" * 80)
@@ -213,10 +181,8 @@ object PostProcessEmbeddings {
     val pwNN = new PrintWriter("nearest_neighbors.csv")
     pwNN.println("word,neighbor_1,sim_1,neighbor_2,sim_2,neighbor_3,sim_3,neighbor_4,sim_4,neighbor_5,sim_5")
 
-    var processed = 0
     val startTime = System.currentTimeMillis()
-
-    normalizedVocab.foreach { nw =>
+    normalizedVocab.zipWithIndex.foreach { case (nw, index) =>
       // Find top 5 most similar words
       val similarities = normalizedVocab
         .filter(_.word != nw.word)
@@ -230,12 +196,11 @@ object PostProcessEmbeddings {
       val row = similarities.flatMap { case (w, s) => Seq(w, f"$s%.6f") }.mkString(",")
       pwNN.println(s"${nw.word},$row")
 
-      processed += 1
       // Progress logging every 500 words
-      if (processed % 500 == 0) {
+      if ((index + 1) % 500 == 0) {
         val elapsed = (System.currentTimeMillis() - startTime) / 1000
-        log.info(s"Progress: $processed / ${normalizedVocab.length} (${elapsed}s elapsed)")
-        println(s"  Progress: $processed / ${normalizedVocab.length}")
+        log.info(s"Progress: ${index + 1} / ${normalizedVocab.length} (${elapsed}s elapsed)")
+        println(s"  Progress: ${index + 1} / ${normalizedVocab.length}")
       }
     }
     pwNN.close()
@@ -258,9 +223,7 @@ object PostProcessEmbeddings {
       log.info(s"  $example")
     }
 
-    // ========================================================================
     // Task 2: Word Similarity
-    // ========================================================================
     log.info("=" * 80)
     log.info("Task 2: Computing Word Similarities")
     log.info("=" * 80)
@@ -297,9 +260,7 @@ object PostProcessEmbeddings {
     simWriter.close()
     log.info("word_similarities.csv written successfully")
 
-    // ========================================================================
     // Task 3: Word Analogies
-    // ========================================================================
     log.info("=" * 80)
     log.info("Task 3: Computing Word Analogies")
     log.info("=" * 80)
@@ -352,9 +313,7 @@ object PostProcessEmbeddings {
     analogyWriter.close()
     log.info("word_analogies.csv written successfully")
 
-    // ========================================================================
     // Summary
-    // ========================================================================
     log.info("=" * 80)
     log.info("Post-processing Complete")
     log.info("=" * 80)

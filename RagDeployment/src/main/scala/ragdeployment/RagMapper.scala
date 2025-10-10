@@ -52,9 +52,7 @@ class RagMapper extends Mapper[LongWritable, Text, IntWritable, Text] {
     log.info(s"Document ID: $docId")
     log.info(s"Filesystem: ${fs.getScheme}")
 
-    // ========================================================================
     // Step 1: Read PDF from distributed filesystem
-    // ========================================================================
     log.info(s"Step 1: Reading PDF from $pathStr")
     val text = try {
       // Open input stream from HDFS/S3
@@ -84,9 +82,7 @@ class RagMapper extends Mapper[LongWritable, Text, IntWritable, Text] {
       return  // Skip this document
     }
 
-    // ========================================================================
     // Step 2: Split text into chunks
-    // ========================================================================
     log.info(s"Step 2: Chunking text (maxChars=1200, overlap=200)")
     val chunks = Chunker.split(text, maxChars = 1200, overlap = 200).toVector
 
@@ -99,9 +95,7 @@ class RagMapper extends Mapper[LongWritable, Text, IntWritable, Text] {
     log.info(s"Created ${chunks.size} chunks")
     log.debug(s"First chunk preview: ${chunks.head.take(100)}...")
 
-    // ========================================================================
     // Step 3: Generate embeddings via Ollama
-    // ========================================================================
     log.info(s"Step 3: Generating embeddings for ${chunks.size} chunks")
 
     // Get embedding model from configuration
@@ -114,14 +108,14 @@ class RagMapper extends Mapper[LongWritable, Text, IntWritable, Text] {
       log.info(s"Generated ${vecs.length} embeddings")
 
       // Validate embeddings
-      var emptyCount = 0
-      vecs.zipWithIndex.foreach { case (vec, idx) =>
+      val emptyCount = vecs.zipWithIndex.foldLeft(0) { case (count, (vec, idx)) =>
         if (vec.isEmpty) {
           log.warn(s"Chunk $idx: Empty embedding vector!")
           ctx.getCounter("rag", "empty_embeddings").increment(1)
-          emptyCount += 1
+          count + 1
         } else {
           log.debug(s"Chunk $idx: ${vec.length}-dimensional vector")
+          count
         }
       }
 
@@ -137,9 +131,7 @@ class RagMapper extends Mapper[LongWritable, Text, IntWritable, Text] {
         return  // Skip this document
     }
 
-    // ========================================================================
     // Step 4: Normalize vectors (L2 normalization for cosine similarity)
-    // ========================================================================
     val useL2 = ctx.getConfiguration.getBoolean("rag.normalize.l2", true)
     log.info(s"Step 4: Vector normalization (L2=${useL2})")
 
@@ -151,9 +143,7 @@ class RagMapper extends Mapper[LongWritable, Text, IntWritable, Text] {
       rawVecs
     }
 
-    // ========================================================================
     // Step 5: Assign to shard and emit records
-    // ========================================================================
     log.info(s"Step 5: Emitting records to reducers")
 
     // Determine shard based on document ID hash
@@ -161,11 +151,8 @@ class RagMapper extends Mapper[LongWritable, Text, IntWritable, Text] {
     val shard = math.abs(docId.hashCode) % numReducers
     log.info(s"Assigned to shard $shard (out of $numReducers reducers)")
 
-    var emittedCount = 0
-    var skippedCount = 0
-
-    // Emit each chunk with its embedding
-    chunks.zip(vecs).zipWithIndex.foreach { case ((chunk, embedding), id) =>
+    // Emit each chunk with its embedding and count emitted/skipped chunks
+    val (emittedCount, skippedCount) = chunks.zip(vecs).zipWithIndex.foldLeft((0, 0)) { case ((emitted, skipped), ((chunk, embedding), id)) =>
       // Skip invalid chunks/embeddings
       if (chunk.trim.nonEmpty && embedding.nonEmpty) {
         // Create JSON record
@@ -178,19 +165,16 @@ class RagMapper extends Mapper[LongWritable, Text, IntWritable, Text] {
 
         // Emit to reducer
         ctx.write(new IntWritable(shard), new Text(rec))
-        emittedCount += 1
-
         log.trace(s"Emitted chunk $id: ${chunk.take(50)}...")
+        (emitted + 1, skipped)
       } else {
         log.warn(s"Skipping chunk $id: empty content or embedding")
         ctx.getCounter("rag", "skipped_chunks").increment(1)
-        skippedCount += 1
+        (emitted, skipped + 1)
       }
     }
 
-    // ========================================================================
     // Summary
-    // ========================================================================
     log.info("=" * 80)
     log.info(s"Completed processing $docId")
     log.info(s"Summary:")

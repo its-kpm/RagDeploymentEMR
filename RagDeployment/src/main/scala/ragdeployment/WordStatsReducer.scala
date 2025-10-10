@@ -9,16 +9,12 @@ import scala.jdk.CollectionConverters.*
 /**
  * Reducer for Word Statistics with embeddings.
  */
-class WordStatsReducer extends Reducer[Text, IntWritable, Text, Text]:
+class WordStatsReducer extends Reducer[Text, IntWritable, Text, Text] {
 
   private val log = LoggerFactory.getLogger(getClass)
 
   // Ollama client for embedding generation (shared across all reduce calls)
   private val client = new Ollama()
-
-  // Track statistics for logging
-  private var processedWords = 0
-  private var embeddingFailures = 0
 
   /**
    * Reduce function: Aggregate counts and generate embedding for each word.
@@ -27,12 +23,10 @@ class WordStatsReducer extends Reducer[Text, IntWritable, Text, Text]:
    * @param counts Iterator of counts from all mappers
    * @param ctx Reducer context for output and configuration
    */
-  override def reduce(word: Text, counts: java.lang.Iterable[IntWritable], ctx: Reducer[Text, IntWritable, Text, Text]#Context): Unit =
+  override def reduce(word: Text, counts: java.lang.Iterable[IntWritable], ctx: Reducer[Text, IntWritable, Text, Text]#Context): Unit = {
     val wordStr = word.toString
 
-    // ========================================================================
     // Step 1: Aggregate word frequency from all mappers
-    // ========================================================================
     log.debug(s"Processing word: $wordStr")
 
     // Sum all counts for this word across mappers
@@ -47,12 +41,10 @@ class WordStatsReducer extends Reducer[Text, IntWritable, Text, Text]:
       return
     }
 
-    // ========================================================================
     // Step 2: Generate embedding for the word
-    // ========================================================================
     log.debug(s"  Generating embedding for: $wordStr")
 
-    val embedding = try {
+    val (embedding, isFailure) = try {
       // Call Ollama to embed the word
       val embeddingModel = ctx.getConfiguration.get("rag.embed.model", "mxbai-embed-large")
       val vec = client.embed(Vector(wordStr), embeddingModel).head
@@ -60,35 +52,38 @@ class WordStatsReducer extends Reducer[Text, IntWritable, Text, Text]:
       if (vec.isEmpty) {
         log.warn(s"  Empty embedding returned for word: $wordStr")
         ctx.getCounter("wordstats", "empty_embeddings").increment(1)
-        embeddingFailures += 1
-        ""  // Empty string as fallback
+        ("" , true) // Empty string as fallback
       } else {
         log.trace(s"  Generated ${vec.length}-dimensional embedding")
-        vec.mkString(",")
+        (vec.mkString(","), false)
       }
     } catch {
       case e: Exception =>
         log.error(s"  Failed to generate embedding for '$wordStr': ${e.getMessage}")
         ctx.getCounter("wordstats", "embedding_errors").increment(1)
-        embeddingFailures += 1
-        ""  // Empty string as fallback
+        ("" , true) // Empty string as fallback
     }
 
-    // ========================================================================
     // Step 3: Format and emit output
-    // ========================================================================
     // CSV format: word,frequency,[embedding_vector]
     val csvRow = s"$wordStr,$frequency,[$embedding]"
     ctx.write(word, new Text(csvRow))
 
-    processedWords += 1
+    // Update counters for processed words and failures
+    ctx.getCounter("wordstats", "processed_words").increment(1)
+    if (isFailure) {
+      ctx.getCounter("wordstats", "embedding_failures").increment(1)
+    }
 
     // Log progress every 100 words
+    val processedWords = ctx.getCounter("wordstats", "processed_words").getValue
     if (processedWords % 100 == 0) {
+      val embeddingFailures = ctx.getCounter("wordstats", "embedding_failures").getValue
       log.info(s"Progress: $processedWords words processed, $embeddingFailures failures")
     }
 
     log.trace(s"  Emitted CSV row for: $wordStr")
+  }
 
   /**
    * Cleanup method called once after all reduce tasks complete.
@@ -96,10 +91,14 @@ class WordStatsReducer extends Reducer[Text, IntWritable, Text, Text]:
    *
    * @param ctx Reducer context
    */
-  override def cleanup(ctx: Reducer[Text, IntWritable, Text, Text]#Context): Unit =
+  override def cleanup(ctx: Reducer[Text, IntWritable, Text, Text]#Context): Unit = {
     log.info("=" * 80)
     log.info("WordStatsReducer cleanup")
     log.info("=" * 80)
+
+    val processedWords = ctx.getCounter("wordstats", "processed_words").getValue
+    val embeddingFailures = ctx.getCounter("wordstats", "embedding_failures").getValue
+
     log.info(s"Total words processed: $processedWords")
     log.info(s"Embedding failures: $embeddingFailures")
 
@@ -112,3 +111,5 @@ class WordStatsReducer extends Reducer[Text, IntWritable, Text, Text]:
     client.close()
     log.info("WordStatsReducer cleanup complete")
     log.info("=" * 80)
+  }
+}

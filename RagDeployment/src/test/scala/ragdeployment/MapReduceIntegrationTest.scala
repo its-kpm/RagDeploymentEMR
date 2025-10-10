@@ -12,14 +12,15 @@ import java.nio.file.Files
  */
 class MapReduceIntegrationTest extends AnyFlatSpec with Matchers with BeforeAndAfterAll {
 
-  private var tempDir: File = _
+  private val tempDir: File = Files.createTempDirectory("mapreduce-test").toFile
 
   override def beforeAll(): Unit = {
-    tempDir = Files.createTempDirectory("mapreduce-test").toFile
+    // No additional setup needed; tempDir is already created
   }
 
   override def afterAll(): Unit = {
-    if (tempDir != null && tempDir.exists()) {
+    // Clean up temporary directory
+    if (tempDir.exists()) {
       tempDir.listFiles().foreach(_.delete())
       tempDir.delete()
     }

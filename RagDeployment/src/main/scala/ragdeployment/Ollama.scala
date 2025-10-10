@@ -14,7 +14,7 @@ import org.slf4j.LoggerFactory
  * - Generate chat completions for RAG answer generation
  *
  * Default Ollama endpoint: http://127.0.0.1:11434
- * Can be overridden with OLLAMA_HOST environment variable
+ * Can be overridden with OLLAMA_HOST
  */
 
 // ============================================================================

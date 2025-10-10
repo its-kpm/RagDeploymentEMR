@@ -16,44 +16,42 @@ import org.apache.lucene.index.VectorSimilarityFunction
  */
 class RagQueryTest extends AnyFlatSpec with Matchers with BeforeAndAfterAll {
 
-  private var tempIndexDir: java.nio.file.Path = _
+  private val tempIndexDir: java.nio.file.Path = Files.createTempDirectory("test-lucene-index")
 
   override def beforeAll(): Unit = {
-    // Create temporary index directory
-    tempIndexDir = Files.createTempDirectory("test-lucene-index")
-
     // Create a small test index
     val analyzer = new StandardAnalyzer()
     val config = new IndexWriterConfig(analyzer)
     val writer = new IndexWriter(FSDirectory.open(tempIndexDir), config)
 
-    // Add test documents
-    val testDocs = Seq(
-      ("doc1.pdf", 0, "Machine learning is a subset of artificial intelligence", Array.fill(1024)(0.1f)),
-      ("doc1.pdf", 1, "Deep learning uses neural networks", Array.fill(1024)(0.2f)),
-      ("doc2.pdf", 0, "Natural language processing analyzes text", Array.fill(1024)(0.3f))
-    )
+    try {
+      // Add test documents
+      val testDocs = Seq(
+        ("doc1.pdf", 0, "Machine learning is a subset of artificial intelligence", Array.fill(1024)(0.1f)),
+        ("doc1.pdf", 1, "Deep learning uses neural networks", Array.fill(1024)(0.2f)),
+        ("doc2.pdf", 0, "Natural language processing analyzes text", Array.fill(1024)(0.3f))
+      )
 
-    testDocs.foreach { case (docId, chunkId, text, vec) =>
-      val doc = new Document()
-      doc.add(new StringField("doc_id", docId, Field.Store.YES))
-      doc.add(new StringField("chunk_id", chunkId.toString, Field.Store.YES))
-      doc.add(new TextField("text", text, Field.Store.YES))
-      doc.add(new KnnFloatVectorField("vec", vec, VectorSimilarityFunction.COSINE))
-      writer.addDocument(doc)
+      testDocs.foreach { case (docId, chunkId, text, vec) =>
+        val doc = new Document()
+        doc.add(new StringField("doc_id", docId, Field.Store.YES))
+        doc.add(new StringField("chunk_id", chunkId.toString, Field.Store.YES))
+        doc.add(new TextField("text", text, Field.Store.YES))
+        doc.add(new KnnFloatVectorField("vec", vec, VectorSimilarityFunction.COSINE))
+        writer.addDocument(doc)
+      }
+
+      writer.commit()
+    } finally {
+      writer.close()
     }
-
-    writer.commit()
-    writer.close()
   }
 
   override def afterAll(): Unit = {
     // Clean up temporary directory
-    if (tempIndexDir != null) {
-      Files.walk(tempIndexDir)
-        .sorted(java.util.Comparator.reverseOrder())
-        .forEach(Files.delete)
-    }
+    Files.walk(tempIndexDir)
+      .sorted(java.util.Comparator.reverseOrder())
+      .forEach(Files.delete)
   }
 
   "RagQuery.searchShard" should "return search results" in {

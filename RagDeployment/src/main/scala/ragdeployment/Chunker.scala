@@ -43,45 +43,43 @@ object Chunker {
     val clean = normalize(text)
     log.debug(s"Normalized text length: ${clean.length} chars")
 
-    // Builder for efficient Vector construction
-    val out = Vector.newBuilder[String]
-    var i = 0  // Current position in text
-    var chunkCount = 0  // Track number of chunks created
-
-    while (i < clean.length) {
-      // Calculate end position for this chunk
-      val end = (i + maxChars).min(clean.length)
-      val slice = clean.substring(i, end)
-
-      // Try to find a sentence boundary (. or newline) to break at
-      val cut = slice.lastIndexWhere(ch => ch == '.' || ch == '\n')
-
-      // If we found a good breaking point in the last 40% of the chunk, use it
-      // Otherwise, use the full slice (hard break)
-      val piece = if (cut >= (maxChars * 0.6).toInt) {
-        log.trace(s"Chunk $chunkCount: Breaking at sentence boundary (position $cut)")
-        slice.substring(0, cut + 1)
+    // Recursive function to build chunks
+    @scala.annotation.tailrec
+    def chunkFrom(pos: Int, acc: Vector[String]): Vector[String] = {
+      if (pos >= clean.length) {
+        acc
       } else {
-        log.trace(s"Chunk $chunkCount: Hard break (no sentence boundary found)")
-        slice
+        // Calculate end position for this chunk
+        val end = (pos + maxChars).min(clean.length)
+        val slice = clean.substring(pos, end)
+
+        // Try to find a sentence boundary (. or newline) to break at
+        val cut = slice.lastIndexWhere(ch => ch == '.' || ch == '\n')
+
+        // If we found a good breaking point in the last 40% of the chunk, use it
+        // Otherwise, use the full slice (hard break)
+        val piece = if (cut >= (maxChars * 0.6).toInt) {
+          log.trace(s"Chunk ${acc.length}: Breaking at sentence boundary (position $cut)")
+          slice.substring(0, cut + 1)
+        } else {
+          log.trace(s"Chunk ${acc.length}: Hard break (no sentence boundary found)")
+          slice
+        }
+
+        // Move to next position with overlap, ensuring at least 1 character advance
+        val nextPos = pos + (piece.length - overlap).max(1)
+        chunkFrom(nextPos, acc :+ piece)
       }
-
-      // Add chunk to output
-      out += piece
-      chunkCount += 1
-
-      // Move to next position with overlap
-      // Ensure we always advance by at least 1 character to avoid infinite loops
-      i += (piece.length - overlap).max(1)
-
-      log.trace(s"Chunk $chunkCount: ${piece.length} chars, next position: $i")
     }
 
+    // Start chunking from position 0 with empty accumulator
+    val chunks = chunkFrom(0, Vector.empty[String])
+
     // Calculate average chunk size for logging
-    val avgLength = if (chunkCount > 0) clean.length / chunkCount else 0
-    log.info(s"Chunked text into $chunkCount pieces (avg length ~${avgLength} chars)")
+    val avgLength = if (chunks.nonEmpty) clean.length / chunks.length else 0
+    log.info(s"Chunked text into ${chunks.length} pieces (avg length ~${avgLength} chars)")
 
     // Return completed vector
-    out.result()
+    chunks
   }
 }

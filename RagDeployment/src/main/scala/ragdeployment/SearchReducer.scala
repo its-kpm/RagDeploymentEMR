@@ -24,16 +24,13 @@ class SearchReducer extends Reducer[FloatWritable, Text, NullWritable, Text] {
                      ): Unit = {
 
     val k = ctx.getConfiguration.getInt("search.top.k", 5)
-    var count = 0
 
     // Emit top-k results (already sorted by mapper output key)
-    values.asScala.foreach { value =>
-      if (count < k) {
-        ctx.write(NullWritable.get(), value)
-        count += 1
-      }
+    val emittedCount = values.asScala.take(k).foldLeft(0) { (count, value) =>
+      ctx.write(NullWritable.get(), value)
+      count + 1
     }
 
-    log.debug(s"Emitted $count results for score ${-key.get()}")
+    log.debug(s"Emitted $emittedCount results for score ${-key.get()}")
   }
 }
