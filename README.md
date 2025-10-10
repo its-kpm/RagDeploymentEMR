@@ -1,9 +1,4 @@
-# NOTE---TO run in locally, first setup the local hadoop cluster and then run these 3 comands one after another for Rag indexing job, wordstat job and postprocessing respectively.
-```bash
- hadoop jar /home/hadoop/RagDeployment-assembly-0.1.0.jar ragdeployment.Driver Driver rag s3://myhadoopemr/paths.txt s3://myhadoopemr/output mxbai-embed-large COSINE
- hadoop jar /home/hadoop/RagDeployment-assembly-0.1.0.jar ragdeployment.Driver Driver rag s3://myhadoopemr/paths.txt s3://myhadoopemr/output mxbai-embed-large COSINE
- hadoop jar /home/hadoop/RagDeployment-assembly-0.1.0.jar ragdeployment.Driver Driver rag s3://myhadoopemr/paths.txt s3://myhadoopemr/output mxbai-embed-large COSINE
- ```
+
 
  # Word Stats links---https://drive.google.com/file/d/1krFfVmpLR7L9Tp5vG6Vvj8eEzSGPqhHS/view?usp=sharing , 
 
@@ -177,4 +172,11 @@ NOTE---Currently PATHS in code follow aws s3 filesystem.
     "embedModel": "mxbai-embed-large",
     "chatModel": "llama3"
   }'
-  
+
+# NOTE
+TO run in locally, first you have to make some filesystem changes in code, currently it is configured according to AWS s3 filesystem. Then  setup the local hadoop cluster and then run these 3 comands one after another for Rag indexing job, wordstat job and postprocessing respectively.
+```bash
+ hadoop jar /home/hadoop/RagDeployment-assembly-0.1.0.jar ragdeployment.Driver Driver rag s3://myhadoopemr/paths.txt s3://myhadoopemr/output mxbai-embed-large COSINE
+ hadoop jar /home/hadoop/RagDeployment-assembly-0.1.0.jar ragdeployment.Driver Driver rag s3://myhadoopemr/paths.txt s3://myhadoopemr/output mxbai-embed-large COSINE
+ java -cp /Users/home/RagDeplyment/RagDeployment/target/scala-3.5.1/RagDeployment-assembly-0.1.0.jar ragdeployment.Driver Driver postprocess /Users/home/RagDeplyment/RagDeployment/src/main/scala/ragdeployment dummy dummy
+ ```
