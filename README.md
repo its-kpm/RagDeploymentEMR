@@ -3,7 +3,7 @@ NOTE---TO run in locally, first setup the local hadoop cluster and then run thes
  hadoop jar /home/hadoop/RagDeployment-assembly-0.1.0.jar ragdeployment.Driver Driver rag s3://myhadoopemr/paths.txt s3://myhadoopemr/output mxbai-embed-large COSINE
  hadoop jar /home/hadoop/RagDeployment-assembly-0.1.0.jar ragdeployment.Driver Driver rag s3://myhadoopemr/paths.txt s3://myhadoopemr/output mxbai-embed-large COSINE
  hadoop jar /home/hadoop/RagDeployment-assembly-0.1.0.jar ragdeployment.Driver Driver rag s3://myhadoopemr/paths.txt s3://myhadoopemr/output mxbai-embed-large COSINE
- 
+ ```
 
 # RAG Deployment System in Scala
 This project implements a scalable Retrieval-Augmented Generation (RAG) system using Scala, Apache Hadoop (MapReduce), Apache Lucene for vector search, and Ollama for embedding generation and LLM-based answer synthesis. It processes PDF documents stored in distributed file systems (e.g., HDFS or S3), chunks them, generates embeddings, builds sharded Lucene indexes, and provides an HTTP API for querying.
