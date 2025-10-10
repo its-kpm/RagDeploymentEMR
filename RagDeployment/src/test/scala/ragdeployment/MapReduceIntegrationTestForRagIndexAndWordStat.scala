@@ -10,7 +10,7 @@ import java.nio.file.Files
  * Integration test for MapReduce components.
  * Tests mapper and reducer logic with mock data.
  */
-class MapReduceIntegrationTest extends AnyFlatSpec with Matchers with BeforeAndAfterAll {
+class MapReduceIntegrationTestForRagIndexAndWordStat extends AnyFlatSpec with Matchers with BeforeAndAfterAll {
 
   private val tempDir: File = Files.createTempDirectory("mapreduce-test").toFile
 
@@ -129,9 +129,9 @@ class MapReduceIntegrationTest extends AnyFlatSpec with Matchers with BeforeAndA
 
   "Chunker integration with text" should "handle real PDF-like text" in {
     val sampleText = """
-      Machine learning is a subset of artificial intelligence that focuses on 
-      enabling computers to learn from data. Deep learning, a subfield of machine 
-      learning, uses neural networks with multiple layers. Natural language processing 
+      Machine learning is a subset of artificial intelligence that focuses on
+      enabling computers to learn from data. Deep learning, a subfield of machine
+      learning, uses neural networks with multiple layers. Natural language processing
       is another important area that deals with text analysis.
     """.trim
 
