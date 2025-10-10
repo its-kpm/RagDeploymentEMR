@@ -147,7 +147,6 @@ Via API: POST to `/query` with JSON payload.
    - Http4s, Cats Effect, Circe (for API).
    - SLF4J (logging).
    - Build with sbt or Maven.
-NOTE---Currently PATHS in code follow aws s3 filesystem.
 2. **Ollama Setup**: Install Ollama, pull models (e.g., `ollama pull mxbai-embed-large`, `ollama pull llama3`).
 
 3. Build in sbt shell using assembly.
