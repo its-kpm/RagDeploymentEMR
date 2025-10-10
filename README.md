@@ -1,6 +1,6 @@
 
 
- # Word Stats links---https://drive.google.com/file/d/1krFfVmpLR7L9Tp5vG6Vvj8eEzSGPqhHS/view?usp=sharing , 
+ # Word Stats excels links---https://drive.google.com/drive/folders/1K1Dl3zIrqkCWjVhSCC6H0UMJueU3bMN-?usp=sharing
 
 # RAG Deployment System in Scala
 This project implements a scalable Retrieval-Augmented Generation (RAG) system using Scala, Apache Hadoop (MapReduce), Apache Lucene for vector search, and Ollama for embedding generation and LLM-based answer synthesis. It processes PDF documents stored in distributed file systems (e.g., HDFS or S3), chunks them, generates embeddings, builds sharded Lucene indexes, and provides an HTTP API for querying.
