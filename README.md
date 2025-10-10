@@ -175,9 +175,18 @@ NOTE---Currently PATHS in code follow aws s3 filesystem.
 
 # NOTE
 TO run in locally, first setup the local hadoop cluster and then run these 3 comands one after another for Rag indexing job, wordstat job and postprocessing respectively.
+
+1. This creates indexes in shards. Note that all the paths /hw1/output and /hw1/input/paths.txt are inside hdfs dfs. First you need to create /hw1/input/paths.txt in hdfs df, this txt file contain all the paths to pdfs file(files are are in local home).
+
 ```bash
- hadoop jar /Users/moudgil/RagDeplyment/RagDeployment/target/scala-3.5.1/RagDeployment-assembly-0.1.0.jar ragdeployment.Driver  Driver rag /hw1/input/paths.txt /hw1/output mxbai-embed-large COSINE /////this creates indexes in shards
- hadoop jar /home/hadoop/RagDeployment-assembly-0.1.0.jar ragdeployment.Driver Driver rag s3://myhadoopemr/paths.txt s3://myhadoopemr/outputs mxbai-embed-large COSINE /////this create various stats like vocab count of each word and Emb vector in o/p files
- copy all the files generated from second comand to src/main/scala/ragdeployment , via hdfs dfs -get /hw1/output/ ~/path to src-main-ragdeployment/
+ hadoop jar /Users/moudgil/RagDeplyment/RagDeployment/target/scala-3.5.1/RagDeployment-assembly-0.1.0.jar ragdeployment.Driver  Driver rag /hw1/input/paths.txt /hw1/output mxbai-embed-large COSINE
+```
+ 
+2. this create various files with  vocab count of each word and Emb vector in o/p files(text files like part-r-00000
+ ```bash
+ hadoop jar /home/hadoop/RagDeployment-assembly-0.1.0.jar ragdeployment.Driver Driver rag s3://myhadoopemr/paths.txt s3://myhadoopemr/outputs mxbai-embed-large COSINE
+```
+3. Copy all the files generated from second comand to src/main/scala/ragdeployment , via hdfs dfs -get /hw1/output/ ~/path to src-main-ragdeployment/. Now run following command, thi will generate 3 csv file i.e Nearest neighbors, Analogies, Similarities.
+ ```bash
  java -cp /Users/home/RagDeplyment/RagDeployment/target/scala-3.5.1/RagDeployment-assembly-0.1.0.jar ragdeployment.Driver Driver postprocess /Users/home/RagDeplyment/RagDeployment/src/main/scala/ragdeployment dummy dummy /////this combines all the o/p files in second command and generate the final csv files for stats
  ```
