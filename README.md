@@ -153,7 +153,7 @@ Via API: POST to `/query` with JSON payload.
 
 ## Running on aws emr
 1. **Setup Cluster**: Create emr cluster with appropriate resources.
-2. **Load bootstrap file into s3/emr**: this file contains all intial config.
+2. **Load bootstrap file https://github.com/its-Shivam732/RagDeploymentEMR/blob/main/RagDeployment/src/main/scala/ragdeployment/bootstrap.sh into s3/emr**: this file contains all intial config.
 3. **Store all inputs files in s3**: Store all i/p files like jar/input ppaths/Pdfs into s3 for emr to load.
 4. **Create cluster**: After creating cluster run the folllowing to start the emr jobs.
 
