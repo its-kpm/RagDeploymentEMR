@@ -7,79 +7,67 @@ import org.apache.hadoop.mapreduce.Mapper
 import org.slf4j.LoggerFactory
 
 import java.io.InputStream
-import java.nio.file.Paths
+import java.nio.file.{Files, Paths}
 
 /**
  * Mapper for RAG index building.
  *
  * Pipeline:
- * 1. Read PDF from path (HDFS or S3)
+ * 1. Read PDF from path (HDFS, S3, or Local)
  * 2. Extract text using PDFBox
  * 3. Split into overlapping chunks
  * 4. Generate embeddings via Ollama
  * 5. Normalize vectors (L2 if needed)
  * 6. Emit (shard_id, json_chunk) pairs
- *
- * Input: LongWritable (line number), Text (PDF path)
- * Output: IntWritable (shard ID), Text (JSON with doc_id, chunk_id, text, embedding)
  */
 class RagMapper extends Mapper[LongWritable, Text, IntWritable, Text] {
 
   private val log = LoggerFactory.getLogger(getClass)
-
-  // Ollama client for embedding generation (reused across map calls)
   private val client = new Ollama()
 
-  /**
-   * Map function: Process a single PDF file.
-   *
-   * @param key Line number in input file (unused)
-   * @param v PDF file path (HDFS or S3)
-   * @param ctx Mapper context for output and configuration
-   */
   override def map(key: LongWritable, v: Text, ctx: Mapper[LongWritable, Text, IntWritable, Text]#Context): Unit = {
-    // Parse input path
     val pathStr = v.toString.trim
     log.info("=" * 80)
     log.info(s"Map task started for input: $pathStr")
 
-    // Get Hadoop filesystem (works with HDFS, S3, local, etc.)
     val conf = ctx.getConfiguration
     val fs = FileSystem.get(conf)
-    val s3Path = new Path(pathStr)
-    val docId = s3Path.getName  // Extract filename as document ID
+    val hadoopPath = new Path(pathStr)
+    val docId = hadoopPath.getName
 
     log.info(s"Document ID: $docId")
-    log.info(s"Filesystem: ${fs.getScheme}")
+    log.info(s"Filesystem detected: ${fs.getScheme}")
 
-    // Step 1: Read PDF from distributed filesystem
-    log.info(s"Step 1: Reading PDF from $pathStr")
+    // Step 1: Read PDF from either distributed or local filesystem
     val text = try {
-      // Open input stream from HDFS/S3
-      val inputStream = fs.open(s3Path)
-      try {
-        log.debug(s"Opened input stream for $docId")
-        // PDFBox can read directly from InputStream
-        val extractedText = Pdfs.readText(inputStream)
-        log.info(s"Successfully read PDF: ${extractedText.length} characters")
-        extractedText
-      } finally {
-        inputStream.close()
-        log.debug(s"Closed input stream for $docId")
-      }
+      val extractedText =
+        if (pathStr.startsWith("s3://") || pathStr.startsWith("s3a://") || pathStr.startsWith("hdfs://")) {
+          log.info(s"Reading from distributed FS: $pathStr")
+          val inputStream = fs.open(hadoopPath)
+          try {
+            Pdfs.readText(inputStream)
+          } finally {
+            inputStream.close()
+          }
+        } else {
+          // Local mode for Mac/Windows development
+          log.info(s"Reading from local file system: $pathStr")
+          Pdfs.readText(Paths.get(pathStr))
+        }
+
+      log.info(s"Successfully read PDF (${extractedText.length} characters) for $docId")
+      extractedText
     } catch {
       case e: Exception =>
         log.error(s"Failed to read PDF $docId: ${e.getMessage}", e)
-        log.error(s"Path attempted: $pathStr")
         ctx.getCounter("rag", "pdf_read_failures").increment(1)
-        return  // Skip this document
+        return
     }
 
-    // Validate extracted text
     if (text.trim.isEmpty) {
       log.warn(s"No text extracted from $docId (empty or image-only PDF)")
       ctx.getCounter("rag", "empty_pdfs").increment(1)
-      return  // Skip this document
+      return
     }
 
     // Step 2: Split text into chunks
@@ -87,110 +75,60 @@ class RagMapper extends Mapper[LongWritable, Text, IntWritable, Text] {
     val chunks = Chunker.split(text, maxChars = 1200, overlap = 200).toVector
 
     if (chunks.isEmpty) {
-      log.warn(s"No text chunks extracted from $docId")
+      log.warn(s"No chunks extracted for $docId")
       ctx.getCounter("rag", "no_chunks").increment(1)
-      return  // Skip this document
+      return
     }
 
     log.info(s"Created ${chunks.size} chunks")
-    log.debug(s"First chunk preview: ${chunks.head.take(100)}...")
 
     // Step 3: Generate embeddings via Ollama
-    log.info(s"Step 3: Generating embeddings for ${chunks.size} chunks")
-
-    // Get embedding model from configuration
     val model = ctx.getConfiguration.get("rag.embed.model", "mxbai-embed-large")
-    log.info(s"Using embedding model: $model")
+    log.info(s"Step 3: Generating embeddings using model: $model")
 
     val rawVecs = try {
-      // Call Ollama API to generate embeddings
       val vecs = client.embed(chunks, model)
       log.info(s"Generated ${vecs.length} embeddings")
-
-      // Validate embeddings
-      val emptyCount = vecs.zipWithIndex.foldLeft(0) { case (count, (vec, idx)) =>
-        if (vec.isEmpty) {
-          log.warn(s"Chunk $idx: Empty embedding vector!")
-          ctx.getCounter("rag", "empty_embeddings").increment(1)
-          count + 1
-        } else {
-          log.debug(s"Chunk $idx: ${vec.length}-dimensional vector")
-          count
-        }
-      }
-
-      if (emptyCount > 0) {
-        log.warn(s"Warning: $emptyCount out of ${vecs.length} embeddings are empty")
-      }
-
       vecs
     } catch {
       case e: Exception =>
         log.error(s"Embedding generation failed for $docId: ${e.getMessage}", e)
         ctx.getCounter("rag", "embed_failures").increment(1)
-        return  // Skip this document
+        return
     }
 
-    // Step 4: Normalize vectors (L2 normalization for cosine similarity)
+    // Step 4: Normalize vectors (L2)
     val useL2 = ctx.getConfiguration.getBoolean("rag.normalize.l2", true)
-    log.info(s"Step 4: Vector normalization (L2=${useL2})")
+    log.info(s"Step 4: Vector normalization (L2=$useL2)")
+    val vecs = if (useL2) rawVecs.map(Vectors.l2) else rawVecs
 
-    val vecs = if (useL2) {
-      log.debug("Applying L2 normalization to vectors")
-      rawVecs.map(Vectors.l2)
-    } else {
-      log.debug("Skipping normalization")
-      rawVecs
-    }
-
-    // Step 5: Assign to shard and emit records
-    log.info(s"Step 5: Emitting records to reducers")
-
-    // Determine shard based on document ID hash
+    // Step 5: Emit records to reducers
     val numReducers = ctx.getNumReduceTasks
     val shard = math.abs(docId.hashCode) % numReducers
     log.info(s"Assigned to shard $shard (out of $numReducers reducers)")
 
-    // Emit each chunk with its embedding and count emitted/skipped chunks
-    val (emittedCount, skippedCount) = chunks.zip(vecs).zipWithIndex.foldLeft((0, 0)) { case ((emitted, skipped), ((chunk, embedding), id)) =>
-      // Skip invalid chunks/embeddings
+    var emittedCount = 0
+    chunks.zip(vecs).zipWithIndex.foreach { case ((chunk, embedding), id) =>
       if (chunk.trim.nonEmpty && embedding.nonEmpty) {
-        // Create JSON record
         val rec = Map(
-          "doc_id"   -> docId.asJson,
+          "doc_id" -> docId.asJson,
           "chunk_id" -> id.asJson,
-          "text"     -> chunk.asJson,
-          "vec"      -> embedding.toVector.asJson
+          "text" -> chunk.asJson,
+          "vec" -> embedding.toVector.asJson
         ).asJson.noSpaces
 
-        // Emit to reducer
         ctx.write(new IntWritable(shard), new Text(rec))
-        log.trace(s"Emitted chunk $id: ${chunk.take(50)}...")
-        (emitted + 1, skipped)
+        emittedCount += 1
       } else {
-        log.warn(s"Skipping chunk $id: empty content or embedding")
         ctx.getCounter("rag", "skipped_chunks").increment(1)
-        (emitted, skipped + 1)
       }
     }
 
-    // Summary
     log.info("=" * 80)
-    log.info(s"Completed processing $docId")
-    log.info(s"Summary:")
-    log.info(s"  Total chunks: ${chunks.size}")
-    log.info(s"  Emitted: $emittedCount")
-    log.info(s"  Skipped: $skippedCount")
-    log.info(s"  Assigned to shard: $shard")
+    log.info(s"Completed processing $docId — emitted $emittedCount chunks to shard $shard")
     log.info("=" * 80)
   }
 
-  /**
-   * Cleanup method called once after all map tasks complete.
-   * Closes Ollama client to release resources.
-   *
-   * @param ctx Mapper context
-   */
   override def cleanup(ctx: Mapper[LongWritable, Text, IntWritable, Text]#Context): Unit = {
     log.info("Mapper cleanup: Closing Ollama client")
     client.close()

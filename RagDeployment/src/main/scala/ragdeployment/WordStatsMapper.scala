@@ -2,20 +2,27 @@ package ragdeployment
 
 import org.apache.hadoop.io.{IntWritable, LongWritable, Text}
 import org.apache.hadoop.mapreduce.Mapper
-import org.slf4j.LoggerFactory
 import org.apache.hadoop.fs.{FileSystem, Path}
-import java.io.InputStream
+import org.slf4j.LoggerFactory
 
+import java.io.InputStream
 import java.nio.file.{Files, Paths}
-import scala.jdk.CollectionConverters.*
 
 /**
- * Mapper for Word Stats and embeddings
+ * Mapper for Word Statistics and embeddings.
+ *
+ * Works both in distributed (HDFS/S3) and local environments.
+ *
+ * Pipeline:
+ * 1. Read PDF (auto-detects local vs distributed FS)
+ * 2. Extract text via PDFBox
+ * 3. Normalize and tokenize text
+ * 4. Filter stopwords
+ * 5. Emit (word, 1) pairs for reducers
  */
 class WordStatsMapper extends Mapper[LongWritable, Text, Text, IntWritable]:
   private val log = LoggerFactory.getLogger(getClass)
 
-  // Define a basic stopword set (you can expand this list)
   private val stopwords = Set(
     "the", "is", "and", "a", "an", "in", "on", "of", "for", "to",
     "this", "that", "it", "with", "as", "by", "at", "from", "or", "be",
@@ -23,7 +30,6 @@ class WordStatsMapper extends Mapper[LongWritable, Text, Text, IntWritable]:
   )
 
   override def map(key: LongWritable, value: Text, ctx: Mapper[LongWritable, Text, Text, IntWritable]#Context): Unit =
-    // Each line is a PDF path
     val pathStr = value.toString.trim
     if (pathStr.isEmpty) {
       log.warn("Empty path string received")
@@ -31,28 +37,41 @@ class WordStatsMapper extends Mapper[LongWritable, Text, Text, IntWritable]:
       return
     }
 
-    log.info(s"=== Processing path: $pathStr ===")
+    log.info("=" * 80)
+    log.info(s"WordStatsMapper started for input: $pathStr")
 
     val conf = ctx.getConfiguration
-    val s3Path = new Path(pathStr)
-    val docId = s3Path.getName
+    val hadoopPath = new Path(pathStr)
+    val docId = hadoopPath.getName
+    var text: String = ""
 
-    log.info(s"DocId: $docId")
+    try {
+      // Detect local vs distributed FS
+      if (pathStr.startsWith("s3://") || pathStr.startsWith("s3a://") || pathStr.startsWith("hdfs://")) {
+        val fs = FileSystem.get(hadoopPath.toUri, conf)
+        log.info(s"Reading PDF from distributed FS: ${fs.getScheme}://${hadoopPath}")
+        if (!fs.exists(hadoopPath)) {
+          log.error(s"Path not found: $pathStr")
+          ctx.getCounter("rag", "path_not_found").increment(1)
+          return
+        }
 
-    // Step 1: Read PDF from S3
-    val text: String = try {
-      val fs = FileSystem.get(s3Path.toUri, conf)
-      log.info(s"FileSystem URI: ${fs.getUri}")
-      log.info(s"S3 Path exists: ${fs.exists(s3Path)}")
+        val inputStream = fs.open(hadoopPath)
+        try {
+          text = Pdfs.readText(inputStream)
+        } finally inputStream.close()
+      } else {
+        // Local file system (Mac/Windows)
+        log.info(s"Reading PDF from local path: $pathStr")
+        text = Pdfs.readText(Paths.get(pathStr))
+      }
 
-      if (!fs.exists(s3Path)) {
-        log.error(s"Path does not exist: $pathStr")
-        ctx.getCounter("rag", "path_not_found").increment(1)
+      if (text.trim.isEmpty) {
+        log.warn(s"No text extracted from $docId (empty or image-only PDF)")
+        ctx.getCounter("rag", "empty_pdfs").increment(1)
         return
       }
 
-      val inputStream: InputStream = fs.open(s3Path)
-      Pdfs.readText(inputStream)
     } catch {
       case e: Exception =>
         log.error(s"Failed to read PDF $docId: ${e.getMessage}", e)
@@ -60,13 +79,19 @@ class WordStatsMapper extends Mapper[LongWritable, Text, Text, IntWritable]:
         return
     }
 
-
-    // Preprocess: lowercase + remove punctuation
+    // Step 2: Preprocess text
     val cleanText = text.toLowerCase.replaceAll("[^a-z ]", " ")
 
-    // Split into words, filter stopwords, and emit <word, 1>
-    cleanText.split("\\s+")
+    // Step 3: Split words and emit <word, 1>
+    val words = cleanText.split("\\s+")
       .filter(word => word.nonEmpty && word.length >= 2 && !stopwords.contains(word))
-      .foreach { word =>
-        ctx.write(new Text(word), new IntWritable(1))
-      }
+
+    log.info(s"Extracted ${words.length} candidate words from $docId")
+
+    words.foreach { word =>
+      ctx.write(new Text(word), new IntWritable(1))
+    }
+
+    ctx.getCounter("wordstats", "processed_words").increment(1)
+    log.info(s"Completed processing for $docId with ${words.length} words emitted.")
+    log.info("=" * 80)
