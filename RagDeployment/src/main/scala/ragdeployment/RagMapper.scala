@@ -5,9 +5,7 @@ import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.hadoop.io.{IntWritable, LongWritable, Text}
 import org.apache.hadoop.mapreduce.Mapper
 import org.slf4j.LoggerFactory
-
-import java.io.InputStream
-import java.nio.file.{Files, Paths}
+import java.nio.file.Paths
 
 /**
  * Mapper for RAG index building.
@@ -38,25 +36,17 @@ class RagMapper extends Mapper[LongWritable, Text, IntWritable, Text] {
     log.info(s"Document ID: $docId")
     log.info(s"Filesystem detected: ${fs.getScheme}")
 
-    // Step 1: Read PDF from either distributed or local filesystem
+    // Step 1: Read PDF
     val text = try {
-      val extractedText =
-        if (pathStr.startsWith("s3://") || pathStr.startsWith("s3a://") || pathStr.startsWith("hdfs://")) {
-          log.info(s"Reading from distributed FS: $pathStr")
-          val inputStream = fs.open(hadoopPath)
-          try {
-            Pdfs.readText(inputStream)
-          } finally {
-            inputStream.close()
-          }
-        } else {
-          // Local mode for Mac/Windows development
-          log.info(s"Reading from local file system: $pathStr")
-          Pdfs.readText(Paths.get(pathStr))
-        }
-
-      log.info(s"Successfully read PDF (${extractedText.length} characters) for $docId")
-      extractedText
+      if (pathStr.startsWith("s3://") || pathStr.startsWith("s3a://") || pathStr.startsWith("hdfs://")) {
+        log.info(s"Reading from distributed FS: $pathStr")
+        val inputStream = fs.open(hadoopPath)
+        try Pdfs.readText(inputStream)
+        finally inputStream.close()
+      } else {
+        log.info(s"Reading from local file system: $pathStr")
+        Pdfs.readText(Paths.get(pathStr))
+      }
     } catch {
       case e: Exception =>
         log.error(s"Failed to read PDF $docId: ${e.getMessage}", e)
@@ -70,58 +60,55 @@ class RagMapper extends Mapper[LongWritable, Text, IntWritable, Text] {
       return
     }
 
-    // Step 2: Split text into chunks
+    // Step 2: Chunk text
     log.info(s"Step 2: Chunking text (maxChars=1200, overlap=200)")
     val chunks = Chunker.split(text, maxChars = 1200, overlap = 200).toVector
-
     if (chunks.isEmpty) {
       log.warn(s"No chunks extracted for $docId")
       ctx.getCounter("rag", "no_chunks").increment(1)
       return
     }
-
     log.info(s"Created ${chunks.size} chunks")
 
-    // Step 3: Generate embeddings via Ollama
+    // Step 3: Generate embeddings
     val model = ctx.getConfiguration.get("rag.embed.model", "mxbai-embed-large")
     log.info(s"Step 3: Generating embeddings using model: $model")
 
-    val rawVecs = try {
-      val vecs = client.embed(chunks, model)
-      log.info(s"Generated ${vecs.length} embeddings")
-      vecs
-    } catch {
+    val rawVecs = try client.embed(chunks, model)
+    catch {
       case e: Exception =>
         log.error(s"Embedding generation failed for $docId: ${e.getMessage}", e)
         ctx.getCounter("rag", "embed_failures").increment(1)
         return
     }
+    log.info(s"Generated ${rawVecs.length} embeddings")
 
-    // Step 4: Normalize vectors (L2)
+    // Step 4: Normalize vectors
     val useL2 = ctx.getConfiguration.getBoolean("rag.normalize.l2", true)
     log.info(s"Step 4: Vector normalization (L2=$useL2)")
     val vecs = if (useL2) rawVecs.map(Vectors.l2) else rawVecs
 
-    // Step 5: Emit records to reducers
+    // Step 5: Emit records
     val numReducers = ctx.getNumReduceTasks
     val shard = math.abs(docId.hashCode) % numReducers
     log.info(s"Assigned to shard $shard (out of $numReducers reducers)")
 
-    var emittedCount = 0
-    chunks.zip(vecs).zipWithIndex.foreach { case ((chunk, embedding), id) =>
-      if (chunk.trim.nonEmpty && embedding.nonEmpty) {
-        val rec = Map(
-          "doc_id" -> docId.asJson,
-          "chunk_id" -> id.asJson,
-          "text" -> chunk.asJson,
-          "vec" -> embedding.toVector.asJson
-        ).asJson.noSpaces
+    val emittedCount = chunks.zip(vecs).zipWithIndex.foldLeft(0) {
+      case (count, ((chunk, embedding), id)) =>
+        if (chunk.trim.nonEmpty && embedding.nonEmpty) {
+          val rec = Map(
+            "doc_id" -> docId.asJson,
+            "chunk_id" -> id.asJson,
+            "text" -> chunk.asJson,
+            "vec" -> embedding.toVector.asJson
+          ).asJson.noSpaces
 
-        ctx.write(new IntWritable(shard), new Text(rec))
-        emittedCount += 1
-      } else {
-        ctx.getCounter("rag", "skipped_chunks").increment(1)
-      }
+          ctx.write(new IntWritable(shard), new Text(rec))
+          count + 1
+        } else {
+          ctx.getCounter("rag", "skipped_chunks").increment(1)
+          count
+        }
     }
 
     log.info("=" * 80)
