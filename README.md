@@ -1,6 +1,6 @@
 
 
- # Word Statstics excels--https://github.com/its-Shivam732/RagDeplyment/tree/main/RagDeployment/excels . Note that Vocab and nearest_neighour were huge files(all ~75k tokens), more than the capacity what we can upload, have shortened it and uploaded.
+ # Word Statstics excels--https://github.com/its-Shivam732/RagDeplyment/tree/main/RagDeployment/excels . Note that Vocab and nearest_neighour were huge files(all ~75k tokens), more than the capacity what we can upload, have shortened it and uploaded. You still need to download vocab.csv to view, as its still pretty big.
 # RAG Deployment System in Scala ....
 This project implements a scalable Retrieval-Augmented Generation (RAG) system using Scala, Apache Hadoop (MapReduce), Apache Lucene for vector search, and Ollama for embedding generation and LLM-based answer synthesis. It processes PDF documents stored in distributed file systems (e.g., HDFS or S3), chunks them, generates embeddings, builds sharded Lucene indexes, and provides an HTTP API for querying.
 
