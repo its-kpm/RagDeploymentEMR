@@ -159,6 +159,9 @@ object PostProcessEmbeddings {
     println("Task 2: Word Similarities")
     println("=" * 80)
     val testPairs = Seq(
+      ("unity", "unify"),
+      ("sweet", "nice"),
+      ("sword", "weapon"),
       ("absolute", "abstract"),
       ("ability", "able"),
       ("academic", "accepted")
@@ -187,7 +190,8 @@ object PostProcessEmbeddings {
     val analogyWriter = new PrintWriter("word_analogies.csv")
     analogyWriter.println("word_a,word_b,word_c,expected,pred_1,score_1,pred_2,score_2,pred_3,score_3")
 
-    val analogyTests = Seq(("ability", "able", "academic", "accept"))
+    val analogyTests = Seq(("king", "man", "woman", "female"), ("city", "country", "paris", "amsterdam"), ("day", "night", "summer", "days"), ("love", "hate", "good", "nice")
+    )
 
     analogyTests.foreach { case (a, b, c, expected) =>
       (vocab.get(a), vocab.get(b), vocab.get(c)) match {
